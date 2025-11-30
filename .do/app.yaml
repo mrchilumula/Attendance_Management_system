@@ -1,0 +1,59 @@
+name: attendance-management
+region: nyc
+
+services:
+  - name: backend
+    source_dir: /backend
+    github:
+      repo: mrchilumula/Attendance_Management_system
+      branch: main
+      deploy_on_push: true
+    run_command: npm start
+    build_command: npm install && npm run build
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 5000
+    routes:
+      - path: /api
+        preserve_path_prefix: true
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_USER
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_NAME
+        value: attendance_management
+      - key: DB_PORT
+        value: "25060"
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+static_sites:
+  - name: frontend
+    source_dir: /frontend
+    github:
+      repo: mrchilumula/Attendance_Management_system
+      branch: main
+      deploy_on_push: true
+    build_command: npm install && npm run build
+    output_dir: dist
+    index_document: index.html
+    error_document: index.html
+    routes:
+      - path: /
+
+databases:
+  - name: attendance-db
+    engine: MYSQL
+    version: "8"
+    size: db-s-1vcpu-1gb
+    num_nodes: 1
