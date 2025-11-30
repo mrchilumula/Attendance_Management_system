@@ -1,0 +1,26 @@
+# render.yaml - Render.com Blueprint
+services:
+  - type: web
+    name: attendance-backend
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: attendance_management
+      - key: DB_PORT
+        value: "3306"
+      - key: JWT_SECRET
+        generateValue: true
+    healthCheckPath: /api/health
