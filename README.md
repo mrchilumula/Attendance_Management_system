@@ -26,9 +26,10 @@ A complete web-based attendance management system for engineering colleges. Teac
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express, TypeScript, SQLite
+- **Backend**: Node.js, Express, TypeScript, MySQL
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS
 - **Authentication**: JWT (JSON Web Tokens)
+- **Deployment**: Docker, Docker Compose
 
 ## Project Structure
 
@@ -185,6 +186,57 @@ npm run dev       # Start dev server
 npm run build     # Build for production
 npm run preview   # Preview production build
 ```
+
+## 🚀 Cloud Deployment
+
+### Option 1: Docker Compose (Recommended)
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/mrchilumula/Attendance_Management_system.git
+   cd Attendance_Management_system
+   ```
+
+2. **Create environment file**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your secure passwords
+   ```
+
+3. **Build and run with Docker Compose**
+   ```bash
+   docker-compose up -d --build
+   ```
+
+4. **Access the application**
+   - Frontend: http://your-server-ip
+   - Backend API: http://your-server-ip:5000
+
+### Option 2: Deploy to Railway
+
+1. Create a new project on [Railway](https://railway.app)
+2. Add a MySQL database service
+3. Connect your GitHub repository
+4. Set environment variables:
+   - `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` (from Railway MySQL)
+   - `JWT_SECRET` (generate a secure random string)
+   - `NODE_ENV=production`
+
+### Option 3: Deploy to Render
+
+1. Create a new Web Service on [Render](https://render.com)
+2. Connect your GitHub repository
+3. Add a MySQL database (use PlanetScale or other MySQL provider)
+4. Set environment variables and deploy
+
+### Option 4: Deploy to DigitalOcean/AWS/GCP
+
+1. Create a VM instance (Ubuntu 22.04 recommended)
+2. Install Docker and Docker Compose
+3. Clone the repository and run:
+   ```bash
+   docker-compose up -d --build
+   ```
 
 ## License
 
