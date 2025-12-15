@@ -5,6 +5,65 @@ import { RowDataPacket } from 'mysql2';
 
 const router = Router();
 
+// Student: Get my enrolled courses/classes
+router.get('/my-courses', authenticate, authorize('student'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Get courses for the student through their section enrollment
+    const [courses] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        c.id as course_id,
+        c.code as course_code, 
+        c.name as course_name,
+        c.credits,
+        sec.name as section_name,
+        sem.name as semester_name,
+        d.name as department_name,
+        d.code as department_code,
+        CONCAT(f.first_name, ' ', f.last_name) as faculty_name,
+        f.email as faculty_email,
+        (SELECT COUNT(*) FROM attendance_sessions s WHERE s.faculty_course_id = fc.id) as total_sessions
+      FROM student_sections ss
+      JOIN sections sec ON ss.section_id = sec.id
+      JOIN faculty_courses fc ON fc.section_id = sec.id
+      JOIN semesters sem ON fc.semester_id = sem.id
+      JOIN courses c ON fc.course_id = c.id
+      JOIN departments d ON c.department_id = d.id
+      JOIN users f ON fc.faculty_id = f.id
+      WHERE ss.student_id = ? AND sem.is_current = 1
+      ORDER BY c.code
+    `, [req.user!.userId]);
+
+    // Also get student's section info
+    const [sectionInfo] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        sec.name as section_name,
+        d.name as department_name,
+        d.code as department_code,
+        sem.name as semester_name,
+        ay.name as batch_year,
+        ss.roll_number
+      FROM student_sections ss
+      JOIN sections sec ON ss.section_id = sec.id
+      JOIN departments d ON sec.department_id = d.id
+      JOIN academic_years ay ON sec.academic_year_id = ay.id
+      JOIN semesters sem ON sem.academic_year_id = ay.id AND sem.is_current = 1
+      WHERE ss.student_id = ?
+      LIMIT 1
+    `, [req.user!.userId]);
+
+    res.json({ 
+      success: true, 
+      data: {
+        courses,
+        sectionInfo: sectionInfo[0] || null
+      }
+    });
+  } catch (error) {
+    console.error('Get student courses error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // Student: Get my attendance summary
 router.get('/my-attendance', authenticate, authorize('student'), async (req: Request, res: Response): Promise<void> => {
   try {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Plus, Edit2, Trash2, BookOpen } from 'lucide-react';
+import { Plus, Edit2, Trash2, BookOpen, Users } from 'lucide-react';
 
 interface Course {
   id: string;
@@ -180,6 +181,13 @@ const Courses: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-sm">
                       <div className="flex items-center gap-2">
+                        <Link
+                          to={`/admin/course-enrollment?course=${course.id}`}
+                          className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                          title="Manage Enrollment"
+                        >
+                          <Users className="w-4 h-4" />
+                        </Link>
                         <button
                           onClick={() => {
                             setEditingCourse(course);

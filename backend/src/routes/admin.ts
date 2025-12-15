@@ -18,9 +18,12 @@ router.get('/users', authenticate, authorize('admin'), async (req: Request, res:
 
     let query = `
       SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.phone, u.is_active, u.created_at,
-             d.name as department_name, d.code as department_code
+             d.name as department_name, d.code as department_code,
+             ss.roll_number, sec.name as section_name
       FROM users u
       LEFT JOIN departments d ON u.department_id = d.id
+      LEFT JOIN student_sections ss ON u.id = ss.student_id
+      LEFT JOIN sections sec ON ss.section_id = sec.id
       WHERE 1=1
     `;
     const params: string[] = [];
@@ -780,18 +783,18 @@ router.delete('/sections/:id', authenticate, authorize('admin'), async (req: Req
 router.get('/faculty-courses', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
   try {
     const [assignments] = await pool.execute<RowDataPacket[]>(`
-      SELECT 
-        fc.id,
-        CONCAT(u.first_name, ' ', u.last_name) as faculty_name, u.email as faculty_email,
-        c.code as course_code, c.name as course_name,
-        s.name as section_name,
-        sem.name as semester_name
+      SELECT fc.id, fc.faculty_id, fc.course_id, fc.section_id, fc.semester_id,
+             c.code as course_code, c.name as course_name,
+             s.name as section_name, s.semester_number,
+             d.code as department_code, d.name as department_name,
+             CONCAT(u.first_name, ' ', u.last_name) as faculty_name,
+             u.email as faculty_email
       FROM faculty_courses fc
-      JOIN users u ON fc.faculty_id = u.id
       JOIN courses c ON fc.course_id = c.id
       JOIN sections s ON fc.section_id = s.id
-      JOIN semesters sem ON fc.semester_id = sem.id
-      ORDER BY u.first_name, c.code
+      JOIN departments d ON s.department_id = d.id
+      JOIN users u ON fc.faculty_id = u.id
+      ORDER BY d.code, s.name, c.code
     `);
 
     res.json({ success: true, data: assignments });
@@ -801,39 +804,99 @@ router.get('/faculty-courses', authenticate, authorize('admin'), async (req: Req
   }
 });
 
-router.post(
-  '/faculty-courses',
-  authenticate,
-  authorize('admin'),
-  [
-    body('facultyId').notEmpty().withMessage('Faculty is required'),
-    body('courseId').notEmpty().withMessage('Course is required'),
-    body('sectionId').notEmpty().withMessage('Section is required'),
-    body('semesterId').notEmpty().withMessage('Semester is required'),
-  ],
-  async (req: Request, res: Response): Promise<void> => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      res.status(400).json({ success: false, errors: errors.array() });
+// Get courses assigned to a specific faculty member
+router.get('/faculty-courses/:facultyId', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { facultyId } = req.params;
+    
+    const [assignments] = await pool.execute<RowDataPacket[]>(`
+      SELECT fc.id, fc.faculty_id, fc.course_id, fc.section_id, fc.semester_id,
+             c.code as course_code, c.name as course_name,
+             s.name as section_name, s.semester_number,
+             d.code as department_code, d.name as department_name
+      FROM faculty_courses fc
+      JOIN courses c ON fc.course_id = c.id
+      JOIN sections s ON fc.section_id = s.id
+      JOIN departments d ON s.department_id = d.id
+      WHERE fc.faculty_id = ?
+      ORDER BY c.code
+    `, [facultyId]);
+
+    res.json({ success: true, data: assignments });
+  } catch (error) {
+    console.error('Get faculty courses by faculty error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+router.post('/faculty-courses', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { facultyId, courseId, sectionId, semesterId } = req.body;
+    
+    if (!facultyId || !courseId || !sectionId) {
+      res.status(400).json({ success: false, error: 'Faculty, Course, and Section are required' });
       return;
     }
-
-    const { facultyId, courseId, sectionId, semesterId } = req.body;
-
-    try {
-      const id = uuidv4();
-      await pool.execute(`
-        INSERT INTO faculty_courses (id, faculty_id, course_id, section_id, semester_id)
-        VALUES (?, ?, ?, ?, ?)
-      `, [id, facultyId, courseId, sectionId, semesterId]);
-
-      res.status(201).json({ success: true, message: 'Assignment created', data: { id } });
-    } catch (error) {
-      console.error('Create faculty course error:', error);
-      res.status(500).json({ success: false, error: 'Internal server error' });
+    
+    // Check if assignment already exists
+    const [existing] = await pool.execute<RowDataPacket[]>(
+      'SELECT id FROM faculty_courses WHERE faculty_id = ? AND course_id = ? AND section_id = ?',
+      [facultyId, courseId, sectionId]
+    );
+    
+    if ((existing as any[]).length > 0) {
+      res.status(400).json({ success: false, error: 'This faculty-course-section assignment already exists' });
+      return;
     }
+    
+    // Get current semester if not provided
+    let semId = semesterId;
+    if (!semId) {
+      const [[currentSem]] = await pool.execute<RowDataPacket[]>(
+        'SELECT id FROM semesters WHERE is_current = 1 LIMIT 1'
+      );
+      semId = currentSem?.id;
+    }
+    
+    const id = uuidv4();
+    await pool.execute(
+      'INSERT INTO faculty_courses (id, faculty_id, course_id, section_id, semester_id) VALUES (?, ?, ?, ?, ?)',
+      [id, facultyId, courseId, sectionId, semId]
+    );
+    
+    res.json({ success: true, message: 'Faculty assigned to course successfully', data: { id } });
+  } catch (error) {
+    console.error('Assign faculty to course error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
-);
+});
+
+router.delete('/faculty-courses/:fcId', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { fcId } = req.params;
+    
+    // Check for existing attendance sessions
+    const [[sessionCount]] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM attendance_sessions WHERE faculty_course_id = ?',
+      [fcId]
+    );
+    
+    if (sessionCount.count > 0) {
+      res.status(400).json({ 
+        success: false, 
+        error: `Cannot remove: ${sessionCount.count} attendance sessions exist for this assignment` 
+      });
+      return;
+    }
+    
+    await pool.execute('DELETE FROM faculty_courses WHERE id = ?', [fcId]);
+    
+    res.json({ success: true, message: 'Faculty removed from course' });
+  } catch (error) {
+    console.error('Remove faculty from course error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
 
 // ========== STUDENT SECTION ENROLLMENT ==========
 
@@ -892,7 +955,58 @@ router.get('/dashboard', authenticate, authorize('admin'), async (req: Request, 
       todaysSessions: todaysRow.count,
     };
 
-    // Recent sessions
+    // Today's detailed sessions
+    const [todaySessions] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        s.id,
+        s.date, 
+        s.period_number,
+        s.created_at,
+        c.code as course_code, 
+        c.name as course_name,
+        sec.name as section_name,
+        d.code as department_code,
+        CONCAT(u.first_name, ' ', u.last_name) as faculty_name,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.status = 'present') as present,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.status = 'absent') as absent,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id) as total
+      FROM attendance_sessions s
+      JOIN faculty_courses fc ON s.faculty_course_id = fc.id
+      JOIN courses c ON fc.course_id = c.id
+      JOIN sections sec ON fc.section_id = sec.id
+      JOIN departments d ON sec.department_id = d.id
+      JOIN users u ON fc.faculty_id = u.id
+      WHERE s.date = CURDATE()
+      ORDER BY s.period_number ASC, s.created_at DESC
+    `);
+
+    // Today's summary stats
+    const [[todaySummary]] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        COALESCE(SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.status = 'present')), 0) as total_present,
+        COALESCE(SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.status = 'absent')), 0) as total_absent,
+        COALESCE(SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id)), 0) as total_records,
+        COUNT(DISTINCT fc.faculty_id) as active_faculty,
+        COUNT(DISTINCT fc.section_id) as active_sections
+      FROM attendance_sessions s
+      JOIN faculty_courses fc ON s.faculty_course_id = fc.id
+      WHERE s.date = CURDATE()
+    `);
+
+    // Period-wise breakdown for today
+    const [periodBreakdown] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        s.period_number,
+        COUNT(*) as session_count,
+        SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.status = 'present')) as present,
+        SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id)) as total
+      FROM attendance_sessions s
+      WHERE s.date = CURDATE() AND s.period_number IS NOT NULL
+      GROUP BY s.period_number
+      ORDER BY s.period_number
+    `);
+
+    // Recent sessions (all time)
     const [recentSessions] = await pool.execute<RowDataPacket[]>(`
       SELECT 
         s.date, s.period_number,
@@ -910,7 +1024,46 @@ router.get('/dashboard', authenticate, authorize('admin'), async (req: Request, 
       LIMIT 10
     `);
 
-    res.json({ success: true, data: { stats, recentSessions } });
+    // Department-wise today's activity
+    const [deptActivity] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        d.code as department_code,
+        d.name as department_name,
+        COUNT(DISTINCT s.id) as session_count,
+        SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.status = 'present')) as present,
+        SUM((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id)) as total
+      FROM attendance_sessions s
+      JOIN faculty_courses fc ON s.faculty_course_id = fc.id
+      JOIN sections sec ON fc.section_id = sec.id
+      JOIN departments d ON sec.department_id = d.id
+      WHERE s.date = CURDATE()
+      GROUP BY d.id, d.code, d.name
+      ORDER BY session_count DESC
+    `);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        stats, 
+        recentSessions,
+        today: {
+          sessions: todaySessions,
+          summary: {
+            totalSessions: todaysRow.count,
+            totalPresent: todaySummary.total_present || 0,
+            totalAbsent: todaySummary.total_absent || 0,
+            totalRecords: todaySummary.total_records || 0,
+            activeFaculty: todaySummary.active_faculty || 0,
+            activeSections: todaySummary.active_sections || 0,
+            attendanceRate: todaySummary.total_records > 0 
+              ? Math.round((todaySummary.total_present / todaySummary.total_records) * 100) 
+              : 0
+          },
+          periodBreakdown,
+          departmentActivity: deptActivity
+        }
+      } 
+    });
   } catch (error) {
     console.error('Get dashboard error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -1128,6 +1281,302 @@ router.get('/students/:studentId/enrollments', async (req: Request, res: Respons
     res.json({ success: true, data: enrollments });
   } catch (error) {
     console.error('Get enrollments error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ========== BULK CLASS ENROLLMENT ==========
+
+// Get students available for enrollment in a section
+router.get('/sections/:sectionId/available-students', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sectionId } = req.params;
+    
+    // Get section's department
+    const [[section]] = await pool.execute<RowDataPacket[]>(
+      'SELECT department_id FROM sections WHERE id = ?',
+      [sectionId]
+    );
+    
+    if (!section) {
+      res.status(404).json({ success: false, error: 'Section not found' });
+      return;
+    }
+    
+    // Get students from same department who are NOT already in this section
+    const [students] = await pool.execute<RowDataPacket[]>(`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.phone,
+             d.code as department_code, d.name as department_name,
+             ss.roll_number, sec.name as current_section
+      FROM users u
+      LEFT JOIN departments d ON u.department_id = d.id
+      LEFT JOIN student_sections ss ON u.id = ss.student_id
+      LEFT JOIN sections sec ON ss.section_id = sec.id
+      WHERE u.role = 'student' 
+        AND u.is_active = 1
+        AND u.department_id = ?
+        AND u.id NOT IN (SELECT student_id FROM student_sections WHERE section_id = ?)
+      ORDER BY u.first_name, u.last_name
+    `, [section.department_id, sectionId]);
+    
+    res.json({ success: true, data: students });
+  } catch (error) {
+    console.error('Get available students error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Get students enrolled in a section
+router.get('/sections/:sectionId/students', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sectionId } = req.params;
+    
+    const [students] = await pool.execute<RowDataPacket[]>(`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.phone,
+             ss.roll_number, ss.id as enrollment_id,
+             d.code as department_code, d.name as department_name
+      FROM users u
+      JOIN student_sections ss ON u.id = ss.student_id
+      LEFT JOIN departments d ON u.department_id = d.id
+      WHERE ss.section_id = ? AND u.is_active = 1
+      ORDER BY ss.roll_number, u.first_name
+    `, [sectionId]);
+    
+    res.json({ success: true, data: students });
+  } catch (error) {
+    console.error('Get section students error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Bulk enroll students in a section
+router.post('/sections/:sectionId/bulk-enroll', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sectionId } = req.params;
+    const { studentIds, rollNumbers } = req.body;
+    
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      res.status(400).json({ success: false, error: 'Student IDs are required' });
+      return;
+    }
+    
+    // Verify section exists
+    const [[section]] = await pool.execute<RowDataPacket[]>(
+      'SELECT id, name, department_id FROM sections WHERE id = ?',
+      [sectionId]
+    );
+    
+    if (!section) {
+      res.status(404).json({ success: false, error: 'Section not found' });
+      return;
+    }
+    
+    const connection = await pool.getConnection();
+    let enrolled = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+    
+    try {
+      await connection.beginTransaction();
+      
+      for (let i = 0; i < studentIds.length; i++) {
+        const studentId = studentIds[i];
+        const rollNumber = rollNumbers?.[i] || `ROLL${Date.now()}${i}`;
+        
+        try {
+          // Check if already enrolled
+          const [existing] = await connection.execute<RowDataPacket[]>(
+            'SELECT id FROM student_sections WHERE student_id = ? AND section_id = ?',
+            [studentId, sectionId]
+          );
+          
+          if (existing.length > 0) {
+            skipped++;
+            continue;
+          }
+          
+          // Check if roll number already used in this section
+          const [rollExists] = await connection.execute<RowDataPacket[]>(
+            'SELECT id FROM student_sections WHERE section_id = ? AND roll_number = ?',
+            [sectionId, rollNumber]
+          );
+          
+          if (rollExists.length > 0) {
+            errors.push(`Roll number ${rollNumber} already exists in section`);
+            skipped++;
+            continue;
+          }
+          
+          // Enroll student
+          await connection.execute(
+            'INSERT INTO student_sections (id, student_id, section_id, roll_number) VALUES (?, ?, ?, ?)',
+            [uuidv4(), studentId, sectionId, rollNumber]
+          );
+          
+          enrolled++;
+        } catch (err: any) {
+          errors.push(`Student ${studentId}: ${err.message}`);
+          skipped++;
+        }
+      }
+      
+      await connection.commit();
+      
+      res.json({
+        success: true,
+        message: `Successfully enrolled ${enrolled} students`,
+        data: { enrolled, skipped, total: studentIds.length, errors: errors.slice(0, 5) }
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Bulk enroll error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Remove student from section
+router.delete('/sections/:sectionId/students/:studentId', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sectionId, studentId } = req.params;
+    
+    await pool.execute(
+      'DELETE FROM student_sections WHERE section_id = ? AND student_id = ?',
+      [sectionId, studentId]
+    );
+    
+    res.json({ success: true, message: 'Student removed from section' });
+  } catch (error) {
+    console.error('Remove student error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Bulk remove students from section
+router.post('/sections/:sectionId/bulk-remove', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sectionId } = req.params;
+    const { studentIds } = req.body;
+    
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      res.status(400).json({ success: false, error: 'Student IDs are required' });
+      return;
+    }
+    
+    const placeholders = studentIds.map(() => '?').join(',');
+    await pool.execute(
+      `DELETE FROM student_sections WHERE section_id = ? AND student_id IN (${placeholders})`,
+      [sectionId, ...studentIds]
+    );
+    
+    res.json({ success: true, message: `Removed ${studentIds.length} students from section` });
+  } catch (error) {
+    console.error('Bulk remove error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ========== COURSE ENROLLMENT ==========
+
+// Get faculty course details with enrolled students
+router.get('/faculty-courses/:fcId/students', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { fcId } = req.params;
+    
+    // Get faculty course info
+    const [[fcInfo]] = await pool.execute<RowDataPacket[]>(`
+      SELECT fc.id, fc.faculty_id, fc.course_id, fc.section_id,
+             c.code as course_code, c.name as course_name,
+             s.name as section_name, s.semester_number,
+             d.code as department_code, d.name as department_name,
+             CONCAT(u.first_name, ' ', u.last_name) as faculty_name
+      FROM faculty_courses fc
+      JOIN courses c ON fc.course_id = c.id
+      JOIN sections s ON fc.section_id = s.id
+      JOIN departments d ON s.department_id = d.id
+      JOIN users u ON fc.faculty_id = u.id
+      WHERE fc.id = ?
+    `, [fcId]);
+    
+    if (!fcInfo) {
+      res.status(404).json({ success: false, error: 'Faculty course not found' });
+      return;
+    }
+    
+    // Get all students in the section (they are enrolled in all courses for that section)
+    const [students] = await pool.execute<RowDataPacket[]>(`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.phone,
+             ss.roll_number,
+             d.code as department_code
+      FROM users u
+      JOIN student_sections ss ON u.id = ss.student_id
+      LEFT JOIN departments d ON u.department_id = d.id
+      WHERE ss.section_id = ? AND u.is_active = 1
+      ORDER BY ss.roll_number, u.first_name
+    `, [fcInfo.section_id]);
+    
+    res.json({ 
+      success: true, 
+      data: {
+        courseInfo: fcInfo,
+        students
+      }
+    });
+  } catch (error) {
+    console.error('Get faculty course students error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Get all courses with their sections and faculty
+router.get('/courses-with-sections', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const [courses] = await pool.execute<RowDataPacket[]>(`
+      SELECT c.id, c.code, c.name, c.semester_number, c.credits,
+             d.code as department_code, d.name as department_name,
+             (SELECT COUNT(*) FROM faculty_courses fc WHERE fc.course_id = c.id) as section_count
+      FROM courses c
+      JOIN departments d ON c.department_id = d.id
+      ORDER BY d.code, c.semester_number, c.code
+    `);
+    
+    res.json({ success: true, data: courses });
+  } catch (error) {
+    console.error('Get courses with sections error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Get available faculty for assignment
+router.get('/available-faculty', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { departmentId } = req.query;
+    
+    let query = `
+      SELECT u.id, u.email, u.first_name, u.last_name,
+             d.code as department_code, d.name as department_name
+      FROM users u
+      LEFT JOIN departments d ON u.department_id = d.id
+      WHERE u.role = 'faculty' AND u.is_active = 1
+    `;
+    const params: string[] = [];
+    
+    if (departmentId) {
+      query += ' AND u.department_id = ?';
+      params.push(departmentId as string);
+    }
+    
+    query += ' ORDER BY u.first_name, u.last_name';
+    
+    const [faculty] = await pool.execute<RowDataPacket[]>(query, params);
+    
+    res.json({ success: true, data: faculty });
+  } catch (error) {
+    console.error('Get available faculty error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });

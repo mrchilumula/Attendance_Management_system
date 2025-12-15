@@ -1,12 +1,18 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import ForceChangePassword from './pages/ForceChangePassword';
 import Layout from './components/Layout';
 import AdminDashboard from './pages/admin/Dashboard';
 import UploadStudents from './pages/admin/UploadStudents';
+import ClassEnrollment from './pages/admin/ClassEnrollment';
+import CourseEnrollment from './pages/admin/CourseEnrollment';
 import Students from './pages/admin/Students';
 import StudentAttendance from './pages/admin/StudentAttendance';
 import Faculty from './pages/admin/Faculty';
+import FacultyAssignment from './pages/admin/FacultyAssignment';
 import Departments from './pages/admin/Departments';
 import Courses from './pages/admin/Courses';
 import Sections from './pages/admin/Sections';
@@ -17,7 +23,7 @@ import ViewSessions from './pages/faculty/ViewSessions';
 import StudentDashboard from './pages/student/Dashboard';
 
 function App() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, mustChangePassword } = useAuth();
 
   if (isLoading) {
     return (
@@ -31,7 +37,19 @@ function App() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  // Force password change on first login
+  if (mustChangePassword) {
+    return (
+      <Routes>
+        <Route path="/change-password" element={<ForceChangePassword />} />
+        <Route path="*" element={<Navigate to="/change-password" replace />} />
       </Routes>
     );
   }
@@ -46,9 +64,12 @@ function App() {
             <Route path="/admin/students" element={<Students />} />
             <Route path="/admin/students/:studentId/attendance" element={<StudentAttendance />} />
             <Route path="/admin/faculty" element={<Faculty />} />
+            <Route path="/admin/faculty-assignment" element={<FacultyAssignment />} />
             <Route path="/admin/departments" element={<Departments />} />
             <Route path="/admin/courses" element={<Courses />} />
+            <Route path="/admin/course-enrollment" element={<CourseEnrollment />} />
             <Route path="/admin/sections" element={<Sections />} />
+            <Route path="/admin/class-enrollment" element={<ClassEnrollment />} />
             <Route path="/admin/recycle-bin" element={<RecycleBin />} />
             <Route path="/admin/upload-students" element={<UploadStudents />} />
             <Route path="/" element={<Navigate to="/admin" replace />} />

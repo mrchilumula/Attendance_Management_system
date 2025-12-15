@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { AttendanceSession } from '../../types';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Calendar, Clock, Trash2, Eye, Download, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Trash2, Eye, Download, AlertTriangle, Edit2, Save, X } from 'lucide-react';
 
 const ViewSessions: React.FC = () => {
   const { facultyCourseId } = useParams<{ facultyCourseId: string }>();
@@ -16,6 +16,9 @@ const ViewSessions: React.FC = () => {
   const [sessionRecords, setSessionRecords] = useState<any[]>([]);
   const [lowAttendance, setLowAttendance] = useState<any[]>([]);
   const [showLowAttendance, setShowLowAttendance] = useState(false);
+  const [editingSession, setEditingSession] = useState<string | null>(null);
+  const [editedRecords, setEditedRecords] = useState<Record<string, string>>({});
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -70,6 +73,82 @@ const ViewSessions: React.FC = () => {
       setSessions(sessions.filter((s) => s.id !== sessionId));
     } catch (error) {
       toast.error('Failed to delete session');
+    }
+  };
+
+  const startEditingSession = async (sessionId: string) => {
+    try {
+      // First load the records if not already loaded
+      let records = sessionRecords;
+      if (selectedSession !== sessionId) {
+        const response = await api.get(`/attendance/records/${sessionId}`);
+        records = response.data.data;
+        setSessionRecords(records);
+        setSelectedSession(sessionId);
+      }
+      
+      // Initialize edited records with current statuses
+      const initialEdits: Record<string, string> = {};
+      records.forEach((record: any) => {
+        initialEdits[record.id] = record.status;
+      });
+      setEditedRecords(initialEdits);
+      setEditingSession(sessionId);
+    } catch (error) {
+      toast.error('Failed to load records for editing');
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingSession(null);
+    setEditedRecords({});
+  };
+
+  const handleStatusChange = (recordId: string, newStatus: string) => {
+    setEditedRecords(prev => ({
+      ...prev,
+      [recordId]: newStatus
+    }));
+  };
+
+  const saveEditedAttendance = async () => {
+    setSavingEdit(true);
+    try {
+      // Find records that have changed
+      const changedRecords = sessionRecords.filter(record => 
+        editedRecords[record.id] && editedRecords[record.id] !== record.status
+      );
+
+      if (changedRecords.length === 0) {
+        toast.success('No changes to save');
+        cancelEditing();
+        return;
+      }
+
+      // Update each changed record
+      await Promise.all(
+        changedRecords.map(record =>
+          api.put(`/attendance/records/${record.id}`, {
+            status: editedRecords[record.id]
+          })
+        )
+      );
+
+      toast.success(`Updated ${changedRecords.length} record(s)`);
+      
+      // Refresh the records and session data
+      const response = await api.get(`/attendance/records/${editingSession}`);
+      setSessionRecords(response.data.data);
+      
+      // Refresh sessions to update counts
+      const sessionsRes = await api.get(`/attendance/sessions/${facultyCourseId}`);
+      setSessions(sessionsRes.data.data);
+      
+      cancelEditing();
+    } catch (error) {
+      toast.error('Failed to save changes');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -213,6 +292,13 @@ const ViewSessions: React.FC = () => {
                         <Eye className="w-4 h-4 text-gray-600" />
                       </button>
                       <button
+                        onClick={() => startEditingSession(session.id)}
+                        className="p-2 hover:bg-blue-100 rounded-lg"
+                        title="Edit Attendance"
+                      >
+                        <Edit2 className="w-4 h-4 text-blue-600" />
+                      </button>
+                      <button
                         onClick={() => deleteSession(session.id)}
                         className="p-2 hover:bg-red-100 rounded-lg"
                         title="Delete Session"
@@ -226,25 +312,93 @@ const ViewSessions: React.FC = () => {
                 {/* Session Records (Expanded) */}
                 {selectedSession === session.id && sessionRecords.length > 0 && (
                   <div className="p-4 border-t border-gray-200">
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                      {sessionRecords.map((record) => (
-                        <div
-                          key={record.id}
-                          className={`p-2 rounded-lg text-center text-sm ${
-                            record.status === 'present'
-                              ? 'bg-green-100 text-green-800'
-                              : record.status === 'absent'
-                              ? 'bg-red-100 text-red-800'
-                              : record.status === 'late'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-blue-100 text-blue-800'
-                          }`}
-                        >
-                          <p className="font-mono text-xs">{record.roll_number}</p>
-                          <p className="capitalize font-medium">{record.status}</p>
+                    {/* Edit Mode Controls */}
+                    {editingSession === session.id && (
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+                        <div className="flex items-center gap-2">
+                          <Edit2 className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm font-medium text-blue-600">Editing Attendance</span>
+                          <span className="text-xs text-gray-500">Click on a status to change it</span>
                         </div>
-                      ))}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={cancelEditing}
+                            className="btn-secondary py-1 px-3 text-sm flex items-center gap-1"
+                            disabled={savingEdit}
+                          >
+                            <X className="w-4 h-4" />
+                            Cancel
+                          </button>
+                          <button
+                            onClick={saveEditedAttendance}
+                            className="btn-primary py-1 px-3 text-sm flex items-center gap-1"
+                            disabled={savingEdit}
+                          >
+                            <Save className="w-4 h-4" />
+                            {savingEdit ? 'Saving...' : 'Save Changes'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                      {sessionRecords.map((record) => {
+                        const currentStatus = editingSession === session.id 
+                          ? (editedRecords[record.id] || record.status)
+                          : record.status;
+                        
+                        const isEditing = editingSession === session.id;
+                        const hasChanged = isEditing && editedRecords[record.id] && editedRecords[record.id] !== record.status;
+                        
+                        return (
+                          <div
+                            key={record.id}
+                            className={`p-2 rounded-lg text-center text-sm transition-all ${
+                              currentStatus === 'present'
+                                ? 'bg-green-100 text-green-800'
+                                : currentStatus === 'absent'
+                                ? 'bg-red-100 text-red-800'
+                                : currentStatus === 'late'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-blue-100 text-blue-800'
+                            } ${isEditing ? 'cursor-pointer hover:ring-2 hover:ring-primary-400' : ''} ${hasChanged ? 'ring-2 ring-blue-500' : ''}`}
+                            onClick={() => {
+                              if (isEditing) {
+                                // Cycle through statuses: present -> absent -> late -> excused -> present
+                                const statuses = ['present', 'absent', 'late', 'excused'];
+                                const currentIndex = statuses.indexOf(currentStatus);
+                                const nextStatus = statuses[(currentIndex + 1) % statuses.length];
+                                handleStatusChange(record.id, nextStatus);
+                              }
+                            }}
+                          >
+                            <p className="font-mono text-xs">{record.roll_number}</p>
+                            <p className="capitalize font-medium">{currentStatus}</p>
+                            {hasChanged && (
+                              <p className="text-xs opacity-70">(was: {record.status})</p>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
+                    
+                    {/* Legend for edit mode */}
+                    {editingSession === session.id && (
+                      <div className="mt-4 pt-3 border-t border-gray-200">
+                        <p className="text-xs text-gray-500 mb-2">Click to cycle through statuses:</p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">Present</span>
+                          <span className="text-gray-400">→</span>
+                          <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">Absent</span>
+                          <span className="text-gray-400">→</span>
+                          <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">Late</span>
+                          <span className="text-gray-400">→</span>
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">Excused</span>
+                          <span className="text-gray-400">→</span>
+                          <span className="text-xs text-gray-500">(cycles back)</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

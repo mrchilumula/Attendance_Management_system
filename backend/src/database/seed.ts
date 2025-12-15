@@ -1,14 +1,26 @@
 import pool from './connection';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { RowDataPacket } from 'mysql2';
 
 const seedDatabase = async () => {
-  console.log('🌱 Seeding database...');
-
   const connection = await pool.getConnection();
-  const hashedPassword = await bcrypt.hash('password123', 10);
-
+  
   try {
+    // Check if data already exists
+    const [existing] = await connection.execute<RowDataPacket[]>(
+      "SELECT COUNT(*) as count FROM users WHERE email = 'admin@crrit.edu.in'"
+    );
+    
+    if (existing[0].count > 0) {
+      console.log('✅ Database already seeded, skipping...');
+      connection.release();
+      return;
+    }
+    
+    console.log('🌱 Seeding database...');
+    const hashedPassword = await bcrypt.hash('password123', 10);
+
     // Create Departments
     const departments = [
       { id: uuidv4(), name: 'Computer Science & Engineering', code: 'CSE' },

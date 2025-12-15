@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Search, Plus, Eye, Trash2, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Eye, Trash2, BookOpen, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 
 interface Faculty {
   id: string;
@@ -122,13 +123,22 @@ const Faculty: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-800">Faculty</h1>
           <p className="text-gray-500">Manage faculty members and their course assignments</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Add Faculty
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/admin/faculty-assignment"
+            className="btn-secondary flex items-center gap-2"
+          >
+            <UserPlus className="w-4 h-4" />
+            Assign to Courses
+          </Link>
+          <button
+            onClick={() => setShowModal(true)}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Faculty
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

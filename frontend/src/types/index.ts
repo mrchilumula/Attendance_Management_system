@@ -6,6 +6,7 @@ export interface User {
   role: 'admin' | 'faculty' | 'student';
   department?: string;
   departmentCode?: string;
+  mustChangePassword?: boolean;
 }
 
 export interface LoginResponse {
@@ -13,6 +14,7 @@ export interface LoginResponse {
   data: {
     token: string;
     user: User;
+    mustChangePassword?: boolean;
   };
 }
 

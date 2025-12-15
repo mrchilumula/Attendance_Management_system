@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ChatBot from './ChatBot';
 import { 
   LayoutDashboard, 
   Users, 
@@ -14,7 +15,8 @@ import {
   Layers,
   Upload,
   UserCheck,
-  Trash2
+  Trash2,
+  UserPlus
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -33,9 +35,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
           { path: '/admin/students', label: 'Students', icon: Users },
           { path: '/admin/faculty', label: 'Faculty', icon: UserCheck },
+          { path: '/admin/faculty-assignment', label: 'Faculty Assignment', icon: ClipboardList },
           { path: '/admin/departments', label: 'Departments', icon: Building2 },
           { path: '/admin/courses', label: 'Courses', icon: BookOpen },
+          { path: '/admin/course-enrollment', label: 'Course Enrollment', icon: GraduationCap },
           { path: '/admin/sections', label: 'Sections', icon: Layers },
+          { path: '/admin/class-enrollment', label: 'Class Enrollment', icon: UserPlus },
           { path: '/admin/upload-students', label: 'Bulk Upload', icon: Upload },
           { path: '/admin/recycle-bin', label: 'Recycle Bin', icon: Trash2 },
         ];
@@ -149,6 +154,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {children}
         </main>
       </div>
+
+      {/* ChatBot - only for faculty and students */}
+      {(user?.role === 'faculty' || user?.role === 'student') && <ChatBot />}
     </div>
   );
 };

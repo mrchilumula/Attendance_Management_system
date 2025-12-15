@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Plus, Edit2, Trash2, Users, Building2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, Building2, UserPlus } from 'lucide-react';
 
 interface Section {
   id: string;
@@ -192,6 +193,13 @@ const Sections: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
+                          <Link
+                            to={`/admin/class-enrollment?section=${section.id}`}
+                            className="p-1 text-gray-500 hover:text-green-600 rounded"
+                            title="Manage Students"
+                          >
+                            <UserPlus className="w-4 h-4" />
+                          </Link>
                           <button
                             onClick={() => {
                               setEditingSection(section);

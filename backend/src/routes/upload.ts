@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
@@ -33,11 +34,15 @@ const upload = multer({
     const allowedTypes = [
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
       'application/msword', // .doc
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv', // .csv
     ];
-    if (allowedTypes.includes(file.mimetype)) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(file.mimetype) || ['.xlsx', '.xls', '.csv', '.doc', '.docx'].includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only Word documents (.doc, .docx) are allowed'));
+      cb(new Error('Only Word documents (.doc, .docx), Excel files (.xls, .xlsx), or CSV files are allowed'));
     }
   },
   limits: {
@@ -152,13 +157,185 @@ function parseStudentData(text: string): ParsedStudent[] {
   return students;
 }
 
-// Upload and import students from Word document
+// Parse student data from Excel/CSV file
+function parseExcelData(filePath: string): ParsedStudent[] {
+  const students: ParsedStudent[] = [];
+  
+  try {
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+    
+    console.log('Parsing Excel with', data.length, 'rows');
+    
+    // Find header row (look for "roll" in first few rows)
+    let headerRowIndex = 0;
+    let rollColIndex = -1;
+    let nameColIndex = -1;
+    let firstNameColIndex = -1;
+    let lastNameColIndex = -1;
+    let emailColIndex = -1;
+    let phoneColIndex = -1;
+    
+    for (let i = 0; i < Math.min(5, data.length); i++) {
+      const row = data[i];
+      if (!row) continue;
+      
+      for (let j = 0; j < row.length; j++) {
+        const cell = String(row[j] || '').toLowerCase().trim();
+        if (cell.includes('roll') || cell.includes('reg') || cell.includes('htno')) {
+          rollColIndex = j;
+          headerRowIndex = i;
+        }
+        if (cell === 'name' || cell === 'student name' || cell === 'full name') {
+          nameColIndex = j;
+        }
+        if (cell === 'first name' || cell === 'firstname') {
+          firstNameColIndex = j;
+        }
+        if (cell === 'last name' || cell === 'lastname') {
+          lastNameColIndex = j;
+        }
+        if (cell.includes('email') || cell.includes('mail')) {
+          emailColIndex = j;
+        }
+        if (cell.includes('phone') || cell.includes('mobile') || cell.includes('contact')) {
+          phoneColIndex = j;
+        }
+      }
+      if (rollColIndex >= 0) break;
+    }
+    
+    // If no header found, assume first column is roll, second is name
+    if (rollColIndex < 0) {
+      rollColIndex = 0;
+      nameColIndex = 1;
+      headerRowIndex = -1; // No header row
+    }
+    
+    // Parse data rows
+    for (let i = headerRowIndex + 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row || row.length === 0) continue;
+      
+      const rollNumber = String(row[rollColIndex] || '').trim().toUpperCase();
+      if (!rollNumber || rollNumber.length < 6) continue;
+      if (!/^[A-Z0-9]+$/i.test(rollNumber.replace(/[^A-Z0-9]/gi, ''))) continue;
+      
+      let firstName = '';
+      let lastName = '';
+      
+      if (firstNameColIndex >= 0 && lastNameColIndex >= 0) {
+        firstName = String(row[firstNameColIndex] || '').trim();
+        lastName = String(row[lastNameColIndex] || '').trim() || 'Student';
+      } else if (nameColIndex >= 0) {
+        const fullName = String(row[nameColIndex] || '').trim();
+        const nameParts = fullName.split(/\s+/);
+        firstName = nameParts[0] || 'Student';
+        lastName = nameParts.slice(1).join(' ') || 'Student';
+      } else {
+        // Try to find name in remaining columns
+        for (let j = 1; j < row.length; j++) {
+          const val = String(row[j] || '').trim();
+          if (val && !val.includes('@') && !/^\d+$/.test(val)) {
+            const nameParts = val.split(/\s+/);
+            firstName = nameParts[0];
+            lastName = nameParts.slice(1).join(' ') || 'Student';
+            break;
+          }
+        }
+      }
+      
+      if (!firstName) continue;
+      
+      const email = emailColIndex >= 0 ? String(row[emailColIndex] || '').trim() : undefined;
+      const phone = phoneColIndex >= 0 ? String(row[phoneColIndex] || '').trim() : undefined;
+      
+      students.push({
+        rollNumber,
+        firstName,
+        lastName: lastName || 'Student',
+        email: email && email.includes('@') ? email : undefined,
+        phone: phone && /^\d{10}$/.test(phone) ? phone : undefined,
+      });
+    }
+  } catch (error) {
+    console.error('Error parsing Excel file:', error);
+  }
+  
+  return students;
+}
+
+// Parse file based on extension
+async function parseStudentFile(filePath: string): Promise<ParsedStudent[]> {
+  const ext = path.extname(filePath).toLowerCase();
+  
+  if (ext === '.xlsx' || ext === '.xls' || ext === '.csv') {
+    return parseExcelData(filePath);
+  } else if (ext === '.docx' || ext === '.doc') {
+    const result = await mammoth.extractRawText({ path: filePath });
+    return parseStudentData(result.value);
+  }
+  
+  return [];
+}
+
+// Preview uploaded file - parse and return data without importing
+router.post(
+  '/students/preview',
+  authenticate,
+  authorize('admin'),
+  upload.single('file'),
+  async (req: Request, res: Response): Promise<void> => {
+    if (!req.file) {
+      res.status(400).json({ success: false, error: 'No file uploaded' });
+      return;
+    }
+
+    try {
+      const students = await parseStudentFile(req.file.path);
+      
+      // Clean up uploaded file
+      fs.unlinkSync(req.file.path);
+      
+      if (students.length === 0) {
+        res.status(400).json({ 
+          success: false, 
+          error: 'No valid student data found in the file',
+          hint: 'Ensure your file has columns for Roll Number and Name'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          total: students.length,
+          students: students.slice(0, 100), // Return first 100 for preview
+          hasMore: students.length > 100,
+        },
+      });
+    } catch (error: any) {
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      res.status(500).json({ success: false, error: 'Failed to parse file: ' + error.message });
+    }
+  }
+);
+
+// Upload and import students from file (Word/Excel/CSV)
 router.post(
   '/students',
   authenticate,
   authorize('admin'),
   upload.single('file'),
   async (req: Request, res: Response): Promise<void> => {
+    console.log('=== UPLOAD STUDENTS ENDPOINT CALLED ===');
+    console.log('File:', req.file?.originalname);
+    console.log('Body:', req.body);
+    
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No file uploaded' });
       return;
@@ -176,20 +353,17 @@ router.post(
     const connection = await pool.getConnection();
 
     try {
-      // Read and parse Word document
-      const result = await mammoth.extractRawText({ path: req.file.path });
-      const text = result.value;
+      // Parse file based on type
+      const students = await parseStudentFile(req.file.path);
       
-      console.log('Extracted text from Word document:', text.substring(0, 500));
-      
-      const students = parseStudentData(text);
+      console.log('Parsed', students.length, 'students from file');
       
       if (students.length === 0) {
         fs.unlinkSync(req.file.path);
         res.status(400).json({ 
           success: false, 
-          error: 'No valid student data found in the document. Please ensure the format is: RollNumber, FirstName LastName (one per line)',
-          hint: 'Example format:\n21CS1A0101, John Doe\n21CS1A0102, Jane Smith'
+          error: 'No valid student data found in the file',
+          hint: 'Ensure your file has Roll Number and Name columns'
         });
         return;
       }
@@ -271,25 +445,21 @@ router.get('/template', authenticate, authorize('admin'), (req: Request, res: Re
   res.json({
     success: true,
     data: {
-      description: 'Upload a Word document (.docx) with student data',
+      description: 'Upload Excel (.xlsx), CSV, or Word (.docx) file with student data',
       supportedFormats: [
-        'Roll Number, Full Name (comma separated)',
-        'Roll Number    Full Name (tab separated)',
-        'Roll Number Full Name Email Phone (space/tab separated)',
-        'S.No Roll Number Full Name (numbered list)',
+        'Excel/CSV with columns: Roll Number, Name (or First Name, Last Name), Email, Phone',
+        'Word document with: Roll Number, Full Name (comma or tab separated)',
       ],
-      example: `Example Word Document Content:
-
-21CS1A0101, Rahul Kumar
+      excelExample: {
+        headers: ['Roll Number', 'Name', 'Email', 'Phone'],
+        rows: [
+          ['21CS1A0101', 'Rahul Kumar', 'rahul@email.com', '9876543210'],
+          ['21CS1A0102', 'Priya Sharma', 'priya@email.com', '9876543211'],
+        ]
+      },
+      wordExample: `21CS1A0101, Rahul Kumar
 21CS1A0102, Priya Sharma
-21CS1A0103, Amit Singh
-21CS1A0104, Sneha Reddy
-
-OR
-
-Roll No    Name           Email              Phone
-21CS1A0101 Rahul Kumar    rahul@email.com    9876543210
-21CS1A0102 Priya Sharma   priya@email.com    9876543211`,
+21CS1A0103, Amit Singh`,
     },
   });
 });

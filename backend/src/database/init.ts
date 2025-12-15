@@ -17,11 +17,42 @@ const initDatabase = async () => {
         role ENUM('admin', 'faculty', 'student') NOT NULL,
         phone VARCHAR(20),
         department_id VARCHAR(36),
+        must_change_password TINYINT DEFAULT 1,
+        password_changed_at DATETIME,
+        last_login_at DATETIME,
+        login_attempts INT DEFAULT 0,
+        locked_until DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         is_active TINYINT DEFAULT 1
       )
     `);
+
+    // Add new columns if they don't exist (for existing databases)
+    await connection.execute(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS must_change_password TINYINT DEFAULT 1
+    `).catch(() => {});
+    
+    await connection.execute(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS password_changed_at DATETIME
+    `).catch(() => {});
+    
+    await connection.execute(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS last_login_at DATETIME
+    `).catch(() => {});
+    
+    await connection.execute(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS login_attempts INT DEFAULT 0
+    `).catch(() => {});
+    
+    await connection.execute(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS locked_until DATETIME
+    `).catch(() => {});
 
     // Departments table
     await connection.execute(`

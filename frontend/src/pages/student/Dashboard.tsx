@@ -2,23 +2,53 @@ import React, { useEffect, useState } from 'react';
 import api from '../../services/api';
 import { AttendanceSummary } from '../../types';
 import { useAuth } from '../../context/AuthContext';
-import { BookOpen, TrendingUp, TrendingDown, AlertTriangle, CheckCircle } from 'lucide-react';
+import { BookOpen, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, GraduationCap, Users, Clock, Calendar, Building2, User } from 'lucide-react';
+
+interface EnrolledCourse {
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  credits: number;
+  section_name: string;
+  semester_name: string;
+  department_name: string;
+  department_code: string;
+  faculty_name: string;
+  faculty_email: string;
+  total_sessions: number;
+}
+
+interface SectionInfo {
+  section_name: string;
+  department_name: string;
+  department_code: string;
+  semester_name: string;
+  batch_year: number;
+}
 
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
   const [summary, setSummary] = useState<AttendanceSummary[]>([]);
+  const [enrolledCourses, setEnrolledCourses] = useState<EnrolledCourse[]>([]);
+  const [sectionInfo, setSectionInfo] = useState<SectionInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'attendance' | 'courses'>('courses');
 
   useEffect(() => {
-    fetchAttendance();
+    fetchData();
   }, []);
 
-  const fetchAttendance = async () => {
+  const fetchData = async () => {
     try {
-      const response = await api.get('/reports/my-attendance');
-      setSummary(response.data.data);
+      const [attendanceRes, coursesRes] = await Promise.all([
+        api.get('/reports/my-attendance'),
+        api.get('/reports/my-courses')
+      ]);
+      setSummary(attendanceRes.data.data);
+      setEnrolledCourses(coursesRes.data.data.courses);
+      setSectionInfo(coursesRes.data.data.sectionInfo);
     } catch (error) {
-      console.error('Failed to fetch attendance:', error);
+      console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
     }
@@ -43,10 +73,134 @@ const StudentDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">My Attendance</h1>
-        <p className="text-gray-500">Welcome, {user?.firstName} {user?.lastName}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Student Dashboard</h1>
+          <p className="text-gray-500">Welcome, {user?.firstName} {user?.lastName}</p>
+        </div>
       </div>
+
+      {/* Student Info Card */}
+      {sectionInfo && (
+        <div className="card bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-100 rounded-xl">
+              <GraduationCap className="w-8 h-8 text-blue-600" />
+            </div>
+            <div className="flex-1">
+              <h2 className="font-semibold text-gray-800">{user?.firstName} {user?.lastName}</h2>
+              <div className="flex flex-wrap items-center gap-4 mt-1 text-sm text-gray-600">
+                <span className="flex items-center gap-1">
+                  <Building2 className="w-4 h-4" />
+                  {sectionInfo.department_name} ({sectionInfo.department_code})
+                </span>
+                <span className="flex items-center gap-1">
+                  <Users className="w-4 h-4" />
+                  Section {sectionInfo.section_name}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-4 h-4" />
+                  {sectionInfo.semester_name}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  Batch {sectionInfo.batch_year}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Navigation */}
+      <div className="flex gap-2 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('courses')}
+          className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 -mb-px ${
+            activeTab === 'courses'
+              ? 'text-primary-600 border-primary-600'
+              : 'text-gray-500 border-transparent hover:text-gray-700'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4" />
+            My Courses ({enrolledCourses.length})
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('attendance')}
+          className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 -mb-px ${
+            activeTab === 'attendance'
+              ? 'text-primary-600 border-primary-600'
+              : 'text-gray-500 border-transparent hover:text-gray-700'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" />
+            Attendance ({overallPercentage}%)
+          </span>
+        </button>
+      </div>
+
+      {/* Courses Tab */}
+      {activeTab === 'courses' && (
+        <div className="space-y-4">
+          {enrolledCourses.length === 0 ? (
+            <div className="card text-center py-12">
+              <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">No courses enrolled for this semester.</p>
+              <p className="text-sm text-gray-400 mt-1">Contact your department if this is incorrect.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {enrolledCourses.map((course) => (
+                <div key={course.course_id} className="card hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <span className="inline-block px-2 py-1 bg-primary-100 text-primary-700 text-xs font-medium rounded mb-2">
+                        {course.course_code}
+                      </span>
+                      <h3 className="font-semibold text-gray-800">{course.course_name}</h3>
+                    </div>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                      {course.credits} Credits
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <User className="w-4 h-4 text-blue-500" />
+                      <span>{course.faculty_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Users className="w-4 h-4 text-green-500" />
+                      <span>Section {course.section_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Calendar className="w-4 h-4 text-orange-500" />
+                      <span>{course.semester_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Clock className="w-4 h-4 text-purple-500" />
+                      <span>{course.total_sessions} Classes Conducted</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-gray-100">
+                    <p className="text-xs text-gray-500">
+                      Department: {course.department_name}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Attendance Tab */}
+      {activeTab === 'attendance' && (
+        <div className="space-y-6">
 
       {/* Overall Summary Card */}
       <div className="card bg-gradient-to-r from-primary-600 to-primary-700 text-white">
@@ -167,6 +321,8 @@ const StudentDashboard: React.FC = () => {
           </div>
         )}
       </div>
+        </div>
+      )}
     </div>
   );
 };

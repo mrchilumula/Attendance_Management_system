@@ -11,6 +11,7 @@ import attendanceRoutes from './routes/attendance';
 import reportsRoutes from './routes/reports';
 import adminRoutes from './routes/admin';
 import uploadRoutes from './routes/upload';
+import chatbotRoutes from './routes/chatbot';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/chatbot', chatbotRoutes);
 
 // 404 handler
 app.use((req, res) => {
