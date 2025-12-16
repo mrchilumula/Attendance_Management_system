@@ -144,16 +144,40 @@ router.put('/users/:id', authenticate, authorize('admin'), async (req: Request, 
       return;
     }
 
-    await pool.execute(`
-      UPDATE users 
-      SET first_name = COALESCE(?, first_name),
-          last_name = COALESCE(?, last_name),
-          phone = COALESCE(?, phone),
-          department_id = COALESCE(?, department_id),
-          is_active = COALESCE(?, is_active),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [firstName, lastName, phone, departmentId, isActive, id]);
+    // Build dynamic update query to handle isActive properly (0 is a valid value)
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (firstName !== undefined) {
+      updates.push('first_name = ?');
+      params.push(firstName);
+    }
+    if (lastName !== undefined) {
+      updates.push('last_name = ?');
+      params.push(lastName);
+    }
+    if (phone !== undefined) {
+      updates.push('phone = ?');
+      params.push(phone);
+    }
+    if (departmentId !== undefined) {
+      updates.push('department_id = ?');
+      params.push(departmentId);
+    }
+    if (isActive !== undefined) {
+      updates.push('is_active = ?');
+      params.push(isActive);
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({ success: false, error: 'No fields to update' });
+      return;
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(id);
+
+    await pool.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
 
     res.json({ success: true, message: 'User updated successfully' });
   } catch (error) {
