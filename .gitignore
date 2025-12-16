@@ -28,3 +28,7 @@ uploads/
 # Database
 *.sqlite
 *.db
+
+# SSH Keys / Certificates
+*.pem
+*.key
