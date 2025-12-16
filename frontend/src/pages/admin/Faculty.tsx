@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Search, Plus, Eye, Trash2, BookOpen, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
+import { Search, Plus, Eye, Trash2, BookOpen, ChevronLeft, ChevronRight, UserPlus, ToggleLeft, ToggleRight } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface Faculty {
   id: string;
@@ -63,9 +64,26 @@ const Faculty: React.FC = () => {
       await api.put(`/admin/users/${facultyMember.id}`, {
         isActive: facultyMember.is_active ? 0 : 1
       });
+      toast.success(facultyMember.is_active ? 'Faculty deactivated' : 'Faculty activated');
       fetchFaculty();
     } catch (error) {
       console.error('Failed to update faculty:', error);
+      toast.error('Failed to update faculty status');
+    }
+  };
+
+  const handleDelete = async (facultyMember: Faculty) => {
+    if (!window.confirm(`Are you sure you want to delete ${facultyMember.first_name} ${facultyMember.last_name}? They will be moved to the recycle bin.`)) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/admin/users/${facultyMember.id}`);
+      toast.success('Faculty moved to recycle bin');
+      fetchFaculty();
+    } catch (error: any) {
+      console.error('Failed to delete faculty:', error);
+      toast.error(error.response?.data?.error || 'Failed to delete faculty');
     }
   };
 
@@ -254,12 +272,19 @@ const Faculty: React.FC = () => {
                           onClick={() => handleToggleActive(f)}
                           className={`p-1 rounded ${
                             f.is_active 
-                              ? 'text-red-600 hover:bg-red-50' 
+                              ? 'text-yellow-600 hover:bg-yellow-50' 
                               : 'text-green-600 hover:bg-green-50'
                           }`}
                           title={f.is_active ? 'Deactivate' : 'Activate'}
                         >
-                          {f.is_active ? <Trash2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                          {f.is_active ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(f)}
+                          className="p-1 text-red-600 hover:bg-red-50 rounded"
+                          title="Delete (Move to Recycle Bin)"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleResetPassword(f.id)}
