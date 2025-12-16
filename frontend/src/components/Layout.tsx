@@ -72,10 +72,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Sidebar */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-30
-        w-64 bg-primary-800 text-white transform transition-transform duration-300
+        w-64 bg-primary-800 text-white transform transition-transform duration-300 flex flex-col
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="p-6">
+        <div className="p-6 flex-shrink-0">
           <div className="flex items-center gap-3">
             <GraduationCap className="w-10 h-10" />
             <div>
@@ -85,7 +85,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
         </div>
 
-        <nav className="mt-6">
+        <nav className="flex-1 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
@@ -109,17 +109,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           })}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 p-6">
-          <div className="border-t border-primary-700 pt-4 mb-4">
-            <p className="text-sm text-primary-200">Logged in as</p>
-            <p className="font-medium">{user?.firstName} {user?.lastName}</p>
+        <div className="flex-shrink-0 p-4 border-t border-primary-700">
+          <div className="mb-3">
+            <p className="text-xs text-primary-300">Logged in as</p>
+            <p className="font-medium text-sm truncate">{user?.firstName} {user?.lastName}</p>
             <p className="text-xs text-primary-300 capitalize">{user?.role}</p>
           </div>
           <button
             onClick={logout}
-            className="flex items-center gap-2 text-primary-200 hover:text-white transition-colors"
+            className="flex items-center gap-2 text-primary-200 hover:text-white transition-colors text-sm"
           >
-            <LogOut className="w-5 h-5" />
+            <LogOut className="w-4 h-4" />
             <span>Logout</span>
           </button>
         </div>
