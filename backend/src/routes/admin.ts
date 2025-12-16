@@ -1094,6 +1094,80 @@ router.get('/dashboard', authenticate, authorize('admin'), async (req: Request, 
   }
 });
 
+// Get today's absentees
+router.get('/todays-absentees', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const [absentees] = await pool.execute<RowDataPacket[]>(`
+      SELECT 
+        ar.id as record_id,
+        ar.status,
+        s.id as session_id,
+        s.date,
+        s.period_number,
+        u.id as student_id,
+        u.email,
+        u.first_name,
+        u.last_name,
+        ss.roll_number,
+        c.code as course_code,
+        c.name as course_name,
+        sec.name as section_name,
+        d.code as department_code,
+        CONCAT(f.first_name, ' ', f.last_name) as faculty_name
+      FROM attendance_records ar
+      JOIN attendance_sessions s ON ar.session_id = s.id
+      JOIN users u ON ar.student_id = u.id
+      JOIN student_sections ss ON u.id = ss.student_id
+      JOIN faculty_courses fc ON s.faculty_course_id = fc.id
+      JOIN courses c ON fc.course_id = c.id
+      JOIN sections sec ON fc.section_id = sec.id
+      JOIN departments d ON sec.department_id = d.id
+      JOIN users f ON fc.faculty_id = f.id
+      WHERE s.date = CURDATE() AND ar.status = 'absent'
+      ORDER BY s.period_number, sec.name, ss.roll_number
+    `);
+
+    // Group by student to show which classes they missed
+    const studentAbsentees: { [key: string]: any } = {};
+    
+    absentees.forEach((record: any) => {
+      const studentKey = record.student_id;
+      if (!studentAbsentees[studentKey]) {
+        studentAbsentees[studentKey] = {
+          student_id: record.student_id,
+          email: record.email,
+          first_name: record.first_name,
+          last_name: record.last_name,
+          roll_number: record.roll_number,
+          section_name: record.section_name,
+          department_code: record.department_code,
+          missed_classes: []
+        };
+      }
+      studentAbsentees[studentKey].missed_classes.push({
+        period_number: record.period_number,
+        course_code: record.course_code,
+        course_name: record.course_name,
+        faculty_name: record.faculty_name
+      });
+    });
+
+    const result = Object.values(studentAbsentees);
+
+    res.json({ 
+      success: true, 
+      data: {
+        totalAbsent: absentees.length,
+        uniqueStudents: result.length,
+        absentees: result
+      }
+    });
+  } catch (error) {
+    console.error('Get today absentees error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // Get courses enrolled for a specific student
 router.get('/students/:studentId/courses', authenticate, authorize('admin'), async (req: Request, res: Response): Promise<void> => {
   try {

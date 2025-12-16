@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { DashboardStats } from '../../types';
-import { Users, GraduationCap, BookOpen, Calendar, Upload, Building2, Layers, Clock, CheckCircle, XCircle, TrendingUp, Activity, UserCheck } from 'lucide-react';
+import { Users, GraduationCap, BookOpen, Calendar, Upload, Building2, Layers, Clock, CheckCircle, XCircle, TrendingUp, Activity, UserCheck, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TodaySession {
   id: string;
@@ -51,12 +51,39 @@ interface TodayData {
   departmentActivity: DepartmentActivity[];
 }
 
+interface MissedClass {
+  period_number: number;
+  course_code: string;
+  course_name: string;
+  faculty_name: string;
+}
+
+interface AbsentStudent {
+  student_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  roll_number: string;
+  section_name: string;
+  department_code: string;
+  missed_classes: MissedClass[];
+}
+
+interface AbsenteesData {
+  totalAbsent: number;
+  uniqueStudents: number;
+  absentees: AbsentStudent[];
+}
+
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
   const [todayData, setTodayData] = useState<TodayData | null>(null);
+  const [absenteesData, setAbsenteesData] = useState<AbsenteesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'today' | 'recent'>('today');
+  const [showAbsentees, setShowAbsentees] = useState(false);
+  const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboard();
@@ -64,10 +91,14 @@ const AdminDashboard: React.FC = () => {
 
   const fetchDashboard = async () => {
     try {
-      const response = await api.get('/admin/dashboard');
-      setStats(response.data.data.stats);
-      setRecentSessions(response.data.data.recentSessions);
-      setTodayData(response.data.data.today);
+      const [dashboardRes, absenteesRes] = await Promise.all([
+        api.get('/admin/dashboard'),
+        api.get('/admin/todays-absentees')
+      ]);
+      setStats(dashboardRes.data.data.stats);
+      setRecentSessions(dashboardRes.data.data.recentSessions);
+      setTodayData(dashboardRes.data.data.today);
+      setAbsenteesData(absenteesRes.data.data);
     } catch (error) {
       console.error('Failed to fetch dashboard:', error);
     } finally {
@@ -354,6 +385,93 @@ const AdminDashboard: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Today's Absentees Section */}
+      {absenteesData && absenteesData.uniqueStudents > 0 && (
+        <div className="card border-red-200 bg-red-50">
+          <div 
+            className="flex items-center justify-between cursor-pointer"
+            onClick={() => setShowAbsentees(!showAbsentees)}
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-red-500 rounded-lg">
+                <AlertCircle className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">Today's Absentees</h2>
+                <p className="text-sm text-gray-600">
+                  {absenteesData.uniqueStudents} students absent across {absenteesData.totalAbsent} classes
+                </p>
+              </div>
+            </div>
+            <button className="p-2 hover:bg-red-100 rounded-lg transition-colors">
+              {showAbsentees ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+            </button>
+          </div>
+
+          {showAbsentees && (
+            <div className="mt-4 space-y-2">
+              {absenteesData.absentees.map((student) => (
+                <div 
+                  key={student.student_id} 
+                  className="bg-white rounded-lg border border-red-100 overflow-hidden"
+                >
+                  <div 
+                    className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50"
+                    onClick={() => setExpandedStudent(expandedStudent === student.student_id ? null : student.student_id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                        <span className="text-red-600 font-medium text-sm">
+                          {student.first_name.charAt(0)}{student.last_name.charAt(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800">
+                          {student.first_name} {student.last_name}
+                          <span className="text-gray-400 font-normal ml-2 text-sm">({student.roll_number})</span>
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {student.section_name} • {student.department_code}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                        {student.missed_classes.length} class{student.missed_classes.length > 1 ? 'es' : ''} missed
+                      </span>
+                      {expandedStudent === student.student_id ? (
+                        <ChevronUp className="w-4 h-4 text-gray-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                      )}
+                    </div>
+                  </div>
+                  
+                  {expandedStudent === student.student_id && (
+                    <div className="border-t border-gray-100 bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500 mb-2">Missed Classes:</p>
+                      <div className="space-y-1">
+                        {student.missed_classes.map((mc, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-sm">
+                            <span className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs font-medium">
+                              P{mc.period_number || '?'}
+                            </span>
+                            <span className="font-medium text-gray-800">{mc.course_code}</span>
+                            <span className="text-gray-500">-</span>
+                            <span className="text-gray-600">{mc.course_name}</span>
+                            <span className="text-gray-400 text-xs">({mc.faculty_name})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
